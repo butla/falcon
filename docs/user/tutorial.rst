@@ -93,7 +93,7 @@ what you need.
 .. tip::
 
     `bpython <http://bpython-interpreter.org/>`_ or
-    `ptpython <https://github.com/jonathanslenders/ptpython>`_ are another
+    `ptpython <https://github.com/jonathanslenders/ptpython>`_ are other
     super-powered REPLs that are good to have in your toolbox when exploring
     a new library.
 
@@ -110,7 +110,8 @@ let's use something that you would actually deploy in production.
     $ pip install gunicorn
     $ gunicorn look.app
     
-Gunicorn has still limitation that is not working on Windows. If you are Windows user you can use Waitress server instead Gunicorn
+Gunicorn has still limitation that is not working on Windows.
+If you are Windows user you can use Waitress server instead Gunicorn
 
 .. code:: bash
 
@@ -240,13 +241,19 @@ Restart Gunicorn, and then try sending a GET request to the resource:
 Testing your application
 ------------------------
 
-Up to this point we didn't care about tests, but when creating applications
-that will be used by someone you should have those. So, as an exercise, we'll create
-the next piece of code in accordance with `Test Driven Development
-<http://www.obeythetestinggoat.com/book/praise.harry.html>`_
+Up to this point we didn't care about tests, but fully exercising your code is critical
+to creating robust applications with a great user experience.
+So, to practise that, we'll create
+the next piece of code in accordance with Test Driven Development (TDD).
+
+.. note:: There's a good book on TDD called
+   `Test Driven Development with Python
+   <http://www.obeythetestinggoat.com/book/praise.harry.html>`_.
+   The examples in the book use the Django framework and even JavaScript, but the presented
+   testing principles can be applied to all web development.
 
 But let's first write the missing tests for the current behavior of the application.
-Create ``tests`` directory with ``__init__.py`` and the test file (``test_app.py``)
+Create a ``tests`` directory with ``__init__.py`` and the test file (``test_app.py``)
 inside it. The project's structure should look like this:
 
 .. code:: bash
@@ -260,12 +267,12 @@ inside it. The project's structure should look like this:
         ├── __init__.py
         └── test_app.py
 
-Falcon supports unit testing its API object by simulated HTTP requests.
-There's two styles of writing tests - using built-in unittest module, and with Pytest
-(more details can be found in :ref:`testing reference <testing>`). Pytest may not
+Falcon supports unit testing its API object by simulating HTTP requests.
+There are two styles of writing tests - using built-in unittest module, and with pytest
+(more details can be found in :ref:`testing reference <testing>`). pytest may not
 be a part of Python's standard library, but it allows for more "pythonic" test code
-than unittest which is highly influenced by Java's JUnit.
-Therefore, we'll stick with Pytest. Let's install it
+than unittest which is highly influenced by Java's JUnit;
+therefore, we'll stick with pytest. Let's install it
 
 .. code:: bash
 
@@ -288,7 +295,7 @@ and edit ``test_app.py`` to look like this:
         return testing.TestClient(api)
 
 
-    # Pytest will inject the object returned by "client" function as a parameter
+    # pytest will inject the object returned by the "client" function as a parameter
     # for this function.
     def test_get_message(client):
         doc = {u'message': u'Hello world!'}
@@ -299,7 +306,7 @@ and edit ``test_app.py`` to look like this:
         assert result_doc == doc
         assert response.status == falcon.HTTP_OK
 
-See your tests pass by running Pytest against ``tests`` directory while in the main
+See your tests pass by running pytest against the ``tests`` directory while in the main
 project directory.
 
 .. code:: bash
@@ -329,10 +336,10 @@ Response class members using the same technique used above:
 
 This will be useful when creating a POST endpoint in the application that can
 add new image resources to our collection. Because we decided to do TDD, we need
-to create a test for this feature before we write the code for it.
+to create a test for this feature **before** we write the code for it.
 That way we define precisely what we want the application to do, and then code until
 the tests tell us that we're done.
-Let's add some imports in ``test_app.py``:
+To that end, let's add some imports in ``test_app.py``:
 
 .. code:: python
 
@@ -350,28 +357,22 @@ Let's add some imports in ``test_app.py``:
         monkeypatch.setattr('builtins.open', mock_file_open)
         monkeypatch.setattr('look.images.uuid.uuid4', lambda: fake_uuid)
 
-        # When the service receives a 
-        
-        
-        
-        
-        
-        image through POST...
+        # When the service receives an image through POST...
         response = client.simulate_post('/images',
                                         body=fake_image_bytes,
                                         headers={'content-type': 'image/png'})
 
-        # ...it must return 201 code, save the file, and return the image's resource location.
+        # ...it must return a 201 code, save the file, and return the image's resource location.
         assert response.status == falcon.HTTP_CREATED
         assert call().write(fake_image_bytes) in mock_file_open.mock_calls
         assert response.headers['location'] == '/images/{}.png'.format(fake_uuid)
 
-What you could have noticed, is that this test relies heavily on mocking, thus making
+As you can see, this test relies heavily on mocking, thus making
 it fragile in the face of implementation changes. We'll deal with this later.
-Run the tests again to see that they fail. Making sure that your tests don't pass when
-they shouldn't is an integral part of TDD.
+But for now, run the tests again to see that they fail.
+Making sure that your tests **don't** pass when they shouldn't is an integral part of TDD.
 
-Now, we can finally get to the resource implementation. We'll need add a new method for
+Now, we can finally get to the resource implementation. We'll need to add a new method for
 handling POSTs, and specify where the images will be saved (for a real service, you would
 want to use an object storage service instead, such as Cloud Files or S3).
 
@@ -438,7 +439,7 @@ methods.
 
 With that explained, we can move onto making our service work.
 Edit ``app.py`` and pass in a path to the resource initializer.
-Right now, it can be the working directory that you've started the service from.
+For now, it can be the working directory from which you started the service.
 
 .. code:: python
 
@@ -447,7 +448,7 @@ Right now, it can be the working directory that you've started the service from.
 Now you can run the tests again and see them pass!
 
 You can also restart Gunicorn, and then try sending a POST request to the resource
-yourself (substituting test.png for a path to any PNG you like.)
+yourself (substituting ``test.png`` for a path to any PNG you like.)
 
 .. code:: bash
 
@@ -461,7 +462,7 @@ Refactoring for testability
 ---------------------------
 
 As you remember, our POST test had a lot of mocks and could break easily if
-the underlying implementation changed. To change this situation, we not only
+the underlying implementation changed. To remedy this situation, we not only
 need to refactor the tests, but also the code, to facilitate easier testing.
 
 First, let's separate the "business logic" from the POST resource's
@@ -542,7 +543,7 @@ Let's adjust ``app.py``:
 You can configure logging there, set up production resources, etc.
 Most of the time a function like this will get in the way of unit testing,
 so we can keep it here to be used when the app is run by Gunicorn.
-Note, that as of now, the command to run the application changes:
+The command to run the application is now:
 
 .. code:: bash
 
@@ -605,9 +606,9 @@ On to the tests that we wanted to redo in the first place:
         assert isinstance(saver_call[0][0], falcon.request_helpers.BoundedStream)
         assert saver_call[0][1] == image_content_type
 
-As you can see, we've redone the POST. While there's fewer mocks, the assertions
-have gotten more elaborate to properly check the interactions on interface boundaries.
-We're also not covering the actual saving now (test coverage reports are useful to
+As you can see, we've redone the POST. While there are fewer mocks, the assertions
+have gotten more elaborate to properly check the interactions on interface boundaries;
+we're also not covering the actual saving now (test coverage reports are useful to
 detect this kind of situations), so let's add that.
 
 .. code:: python
@@ -631,32 +632,35 @@ But the logical structure of the code is better, so the resource and image savin
 (and their tests) can be develop independently in the future, reducing the impact
 of tying tests to implementation.
 
-It's also worth noting that the purpose of this whole refactor is more to demonstrate
-the technique useful in real-life projects, than making our minimal application's
+It's also worth noting that the purpose of this whole refactor is to demonstrate a useful
+technique for real-life projects, rather than simply making our minimal application's
 tests better.
 
-Also, it seems that we didn't actually obey TDD by changing the code first and tests later.
-But it would be really hard to write the tests that we did without knowing the implementation,
-and how to define and inject the mocks, right? Of course! That's why real TDD can
-have (and usually has) two test layers: unit and functional (which can be also called
-integration or other names; it's a nuanced thing worth looking into on your own).
+Also, it seems that we didn't actually obey TDD by changing the code first and the tests later.
+But it would be really hard to write the tests without first knowing the implementation,
+as well as how the mocks should be defined and injected, right? Of course!
+That's why real TDD usually employs a second layer of tests, called functional (or integration,
+or other names; it's a nuanced thing worth looking into on your own) tests.
+They exercise the application as a whole, not bothering with mocking, the same way its
+normal user (which can be a different program or a human) would.
+
 
 Functional tests
 ----------------
 
-Functional tests define the applications behavior from the outside. They are much
+Functional tests define the application's behavior from the outside. They are much
 easier to write before the code than unit tests that will require mocking (not all
-of them do, though). In the case of the refactoring work from the last section, we could
-accidentally break the code and rewrite the tests to pass on it. Functional tests
-would prevent us from doing that. They should actually be written before any unit
-tests or application code, but we wanted to get into Falcon testing before going over
-good TDD practices.
+of them do, though). In the case of the refactoring work from the last section, we could have
+inadvertently introduced a bug into the application that might have been masked when we rewrote
+the tests to make them pass. Functional tests would prevent us from doing that. They should
+actually be written before any unit tests or application code, but we wanted to get into Falcon
+testing before going over good TDD practices.
 
 In our case (and in the case of most web applications) the idea behind a functional test
-is running the application as a normal, separate process (e.g. with Gunicorn) and
-then interacting with it as normal clients would - through HTTP calls. Before we
-implement that, it would be useful to add the possibility of configuring the image
-storage directory through environment variables in ``app.py``.
+is to run the application as a normal, separate process (e.g. with Gunicorn) and
+then to interract with it as a normal client would - through HTTP calls. Before we
+implement that, it would be useful to add the ability to configure the image
+storage directory through an environment variable in ``app.py``.
 
 .. code:: python
 
@@ -697,23 +701,23 @@ Now, put this functional test in a new test file (e.g. ``tests/test_functional.p
 Running this test isn't ideal. You need to manually start the service beforehand
 (with the proper hardcoded storage path), stop the service and clean up the image
 files afterwards. Of course, you could automate the process of starting, stopping,
-and cleaning after the application. And put that automation into the test code
-itself, hopefully in some fixtures. There's a library that can help with that -
-`mountepy <https://github.com/butla/mountepy>`_.
+and cleaning up after the application. And put that automation into the test code
+itself, hopefully in some fixtures. Libraries such as `mountepy https://github.com/butla/mountepy`_
+can help with these tasks.
 
-Anyway, with the new test we could get rid assertions checking the parameters
-with which ``ImageSaver.save`` was called by the POST resource. Well, actually,
-we could get rid of both ``test_post_image`` and ``test_saving_image``, because
+Anyway, with the new integration test in place we can remove the assertions that check
+the parameters with which ``ImageSaver.save`` was called by the POST resource. Well, actually,
+we could remove both ``test_post_image`` and ``test_saving_image``, because
 they don't check anything more than ``test_posted_image_gets_saved``. But we can
-do that only because we have a very simple application logic.
+do that only because our application's logic is rather simple.
 
-Normally, you would check component integration and few more meaningful logic paths
-through the entire application with functional tests, and leave the bulk of testing
-to unit tests. But the actual ratio of unit/functional tests depend entirely on
-applications problem domain and will vary.
+Normally, you would check component integration and all primary logic paths
+throughout the entire application with functional tests, and leave the bulk of testing
+to unit tests. But the actual ratio of unit/functional tests depends entirely
+on each application's problem domain, and will vary.
 
-After this section we won't be doing TDD anymore as you should have a good grip
-of testing in Falcon by now. Instead, we'll focus on showcasing some more of the
+After this section we'll omit the TDD instructions, as you should have a good grip
+of testing Falcon applications by now. Instead, we'll focus on showcasing some more of the
 framework's features.
 
 .. _tutorial-serving-images:
