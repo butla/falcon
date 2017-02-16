@@ -5,15 +5,19 @@ import six
 import testtools
 
 import falcon
-from falcon.request import Request
+from falcon.request import Request, RequestOptions
 import falcon.testing as testing
 import falcon.uri
 
+_PROTOCOLS = ['HTTP/1.0', 'HTTP/1.1']
+
 
 @ddt.ddt
-class TestReqVars(testing.TestBase):
+class TestReqVars(testing.TestCase):
 
-    def before(self):
+    def setUp(self):
+        super(TestReqVars, self).setUp()
+
         self.qs = 'marker=deadbeef&limit=10'
 
         self.headers = {
@@ -268,6 +272,16 @@ class TestReqVars(testing.TestBase):
         # NOTE(kgriffs): Call twice to check caching works
         self.assertEqual(req_noapp.relative_uri, self.relative_uri)
         self.assertEqual(req_noapp.relative_uri, self.relative_uri)
+
+        options = RequestOptions()
+        options.strip_url_path_trailing_slash = False
+        req_noapp = Request(testing.create_environ(
+            path='/hello/',
+            query_string=self.qs,
+            headers=self.headers),
+            options=options)
+
+        self.assertEqual(req_noapp.relative_uri, '/hello/' + '?' + self.qs)
 
     def test_client_accepts(self):
         headers = {'Accept': 'application/xml'}
@@ -640,6 +654,90 @@ class TestReqVars(testing.TestBase):
 
     def test_content_length_method(self):
         self.assertEqual(self.req.get_header('content-length'), '4829')
+
+    # TODO(kgriffs): Migrate to pytest and parametrized fixtures
+    # to DRY things up a bit.
+    @ddt.data(*_PROTOCOLS)
+    def test_port_explicit(self, protocol):
+        port = 9000
+        req = Request(testing.create_environ(
+            protocol=protocol,
+            port=port,
+            app=self.app,
+            path='/hello',
+            query_string=self.qs,
+            headers=self.headers))
+
+        self.assertEqual(req.port, port)
+
+    @ddt.data(*_PROTOCOLS)
+    def test_scheme_https(self, protocol):
+        scheme = 'https'
+        req = Request(testing.create_environ(
+            protocol=protocol,
+            scheme=scheme,
+            app=self.app,
+            path='/hello',
+            query_string=self.qs,
+            headers=self.headers))
+
+        self.assertEqual(req.scheme, scheme)
+        self.assertEqual(req.port, 443)
+
+    @ddt.data(*_PROTOCOLS)
+    def test_scheme_http(self, protocol):
+        scheme = 'http'
+        req = Request(testing.create_environ(
+            protocol=protocol,
+            scheme=scheme,
+            app=self.app,
+            path='/hello',
+            query_string=self.qs,
+            headers=self.headers))
+
+        self.assertEqual(req.scheme, scheme)
+        self.assertEqual(req.port, 80)
+
+    @ddt.data(*_PROTOCOLS)
+    def test_netloc_default_port(self, protocol):
+        req = Request(testing.create_environ(
+            protocol=protocol,
+            app=self.app,
+            path='/hello',
+            query_string=self.qs,
+            headers=self.headers))
+
+        self.assertEqual(req.netloc, 'falconframework.org')
+
+    @ddt.data(*_PROTOCOLS)
+    def test_netloc_nondefault_port(self, protocol):
+        req = Request(testing.create_environ(
+            protocol=protocol,
+            port='8080',
+            app=self.app,
+            path='/hello',
+            query_string=self.qs,
+            headers=self.headers))
+
+        self.assertEqual(req.netloc, 'falconframework.org:8080')
+
+    @ddt.data(*_PROTOCOLS)
+    def test_netloc_from_env(self, protocol):
+        port = 9000
+        host = 'example.org'
+        env = testing.create_environ(
+            protocol=protocol,
+            host=host,
+            port=port,
+            app=self.app,
+            path='/hello',
+            query_string=self.qs,
+            headers=self.headers)
+
+        req = Request(env)
+
+        self.assertEqual(req.port, port)
+        self.assertEqual(req.netloc, '{0}:{1}'.format(host, port))
 
     # -------------------------------------------------------------------------
     # Helpers

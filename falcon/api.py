@@ -23,7 +23,7 @@ from falcon.http_error import HTTPError
 from falcon.http_status import HTTPStatus
 from falcon.request import Request, RequestOptions
 import falcon.responders
-from falcon.response import Response
+from falcon.response import Response, ResponseOptions
 import falcon.status_codes as status
 from falcon.util.misc import get_argnames
 
@@ -103,9 +103,15 @@ class API(object):
             to use in lieu of the default engine.
             See also: :ref:`Routing <routing>`.
 
+        independent_middleware (bool): Set to ``True`` if response
+            middleware should be executed independently of whether or
+            not request middleware raises an exception.
+
     Attributes:
         req_options: A set of behavioral options related to incoming
             requests. See also: :py:class:`~.RequestOptions`
+        resp_options: A set of behavioral options related to outgoing
+            responses. See also: :py:class:`~.ResponseOptions`
     """
 
     # PERF(kgriffs): Reference via self since that is faster than
@@ -121,25 +127,32 @@ class API(object):
 
     __slots__ = ('_request_type', '_response_type',
                  '_error_handlers', '_media_type', '_router', '_sinks',
-                 '_serialize_error', 'req_options', '_middleware')
+                 '_serialize_error', 'req_options', 'resp_options',
+                 '_middleware', '_independent_middleware', '_router_search')
 
     def __init__(self, media_type=DEFAULT_MEDIA_TYPE,
                  request_type=Request, response_type=Response,
-                 middleware=None, router=None):
+                 middleware=None, router=None,
+                 independent_middleware=False):
         self._sinks = []
         self._media_type = media_type
 
         # set middleware
-        self._middleware = helpers.prepare_middleware(middleware)
+        self._middleware = helpers.prepare_middleware(
+            middleware, independent_middleware=independent_middleware)
+        self._independent_middleware = independent_middleware
 
         self._router = router or routing.DefaultRouter()
+        self._router_search = helpers.make_router_search(self._router)
 
         self._request_type = request_type
         self._response_type = response_type
 
         self._error_handlers = []
         self._serialize_error = helpers.default_serialize_error
+
         self.req_options = RequestOptions()
+        self.resp_options = ResponseOptions()
 
         # NOTE(kgriffs): Add default error handlers
         self.add_error_handler(falcon.HTTPError, self._http_error_handler)
@@ -162,11 +175,13 @@ class API(object):
         """
 
         req = self._request_type(env, options=self.req_options)
-        resp = self._response_type()
+        resp = self._response_type(options=self.resp_options)
         resource = None
         params = {}
 
-        mw_pr_stack = []  # Keep track of executed middleware components
+        dependent_mw_resp_stack = []
+        mw_req_stack, mw_rsrc_stack, mw_resp_stack = self._middleware
+
         req_succeeded = False
 
         try:
@@ -174,13 +189,18 @@ class API(object):
                 # NOTE(ealogar): The execution of request middleware
                 # should be before routing. This will allow request mw
                 # to modify the path.
-                for component in self._middleware:
-                    process_request, _, process_response = component
-                    if process_request is not None:
+                # NOTE: if flag set to use independent middleware, execute
+                # request middleware independently. Otherwise, only queue
+                # response middleware after request middleware succeeds.
+                if self._independent_middleware:
+                    for process_request in mw_req_stack:
                         process_request(req, resp)
-
-                    if process_response is not None:
-                        mw_pr_stack.append(process_response)
+                else:
+                    for process_request, process_response in mw_req_stack:
+                        if process_request:
+                            process_request(req, resp)
+                        if process_response:
+                            dependent_mw_resp_stack.insert(0, process_response)
 
                 # NOTE(warsaw): Moved this to inside the try except
                 # because it is possible when using object-based
@@ -201,10 +221,8 @@ class API(object):
                     # resource middleware methods.
                     if resource is not None:
                         # Call process_resource middleware methods.
-                        for component in self._middleware:
-                            _, process_resource, _ = component
-                            if process_resource is not None:
-                                process_resource(req, resp, resource, params)
+                        for process_resource in mw_rsrc_stack:
+                            process_resource(req, resp, resource, params)
 
                     responder(req, resp, **params)
                     req_succeeded = True
@@ -220,8 +238,7 @@ class API(object):
             # reworked.
 
             # Call process_response middleware methods.
-            while mw_pr_stack:
-                process_response = mw_pr_stack.pop()
+            for process_response in mw_resp_stack or dependent_mw_resp_stack:
                 try:
                     process_response(req, resp, resource, req_succeeded)
                 except Exception as ex:
@@ -233,7 +250,13 @@ class API(object):
         #
         # Set status and headers
         #
-        if req.method == 'HEAD' or resp.status in self._BODILESS_STATUS_CODES:
+
+        # NOTE(kgriffs): While not specified in the spec that the status
+        # must be of type str (not unicode on Py27), some WSGI servers
+        # can complain when it is not.
+        resp_status = str(resp.status) if six.PY2 else resp.status
+
+        if req.method == 'HEAD' or resp_status in self._BODILESS_STATUS_CODES:
             body = []
         else:
             body, length = self._get_body(resp, env.get('wsgi.file_wrapper'))
@@ -244,15 +267,15 @@ class API(object):
         # RFC 2616, as commented in that module's source code. The
         # presence of the Content-Length header is not similarly
         # enforced.
-        if resp.status in (status.HTTP_204, status.HTTP_304):
+        if resp_status in (status.HTTP_204, status.HTTP_304):
             media_type = None
         else:
             media_type = self._media_type
 
         headers = resp._wsgi_headers(media_type)
 
-        # Return the response per the WSGI spec
-        start_response(resp.status, headers)
+        # Return the response per the WSGI spec.
+        start_response(resp_status, headers)
         return body
 
     def add_route(self, uri_template, resource, *args, **kwargs):
@@ -513,7 +536,7 @@ class API(object):
         method = req.method
         uri_template = None
 
-        route = self._router.find(path)
+        route = self._router_search(path, req=req)
 
         if route is not None:
             try:
@@ -668,10 +691,7 @@ class API(object):
                     iterable = wsgi_file_wrapper(stream,
                                                  self._STREAM_BLOCK_SIZE)
                 else:
-                    iterable = iter(
-                        lambda: stream.read(self._STREAM_BLOCK_SIZE),
-                        b''
-                    )
+                    iterable = helpers.CloseableStreamIterator(stream, self._STREAM_BLOCK_SIZE)
             else:
                 iterable = stream
 

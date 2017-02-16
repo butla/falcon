@@ -23,16 +23,31 @@ A custom router is any class that implements the following interface:
                     will handle requests for the given URI.
             """
 
-        def find(self, uri):
+        def find(self, uri, req=None):
             """Search for a route that matches the given partial URI.
 
             Args:
-                uri(str): The requested path to route
+                uri(str): The requested path to route.
+
+            Keyword Args:
+                 req(Request): The Request object that will be passed to
+                    the routed responder. The router may use `req` to
+                    further differentiate the requested route. For
+                    example, a header may be used to determine the
+                    desired API version and route the request
+                    accordingly.
+
+                    Note:
+                        The `req` keyword argument was added in version
+                        1.2. To ensure backwards-compatibility, routers
+                        that do not implement this argument are still
+                        supported.
 
             Returns:
                 tuple: A 4-member tuple composed of (resource, method_map,
                     params, uri_template), or ``None`` if no route matches
-                    the requested path
+                    the requested path.
+
             """
 
 A custom routing engine may be specified when instantiating
