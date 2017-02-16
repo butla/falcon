@@ -452,7 +452,7 @@ yourself (substituting ``test.png`` for a path to any PNG you like.)
 
 .. code:: bash
 
-    $ http POST localhost:8000/images Content-Type:image/jpeg < test.jpg
+    $ http POST localhost:8000/images Content-Type:image/png < test.png
 
 Now, if you check your storage directory, it should contain a copy of the
 image you just POSTed.
@@ -843,14 +843,14 @@ Now, restart Gunicorn and post another picture to the service:
 
 .. code:: bash
 
-    $ http POST localhost:8000/images Content-Type:image/jpeg @/usr/local/images/test.jpg
+    $ http POST localhost:8000/images Content-Type:image/png < test.png
 
 Make a note of the path returned in the Location header, and use it to
 try GETing the image:
 
 .. code:: bash
 
-    $ http localhost:8000/images/6daa465b7b.jpeg
+    $ http localhost:8000/images/6daa465b7b.png
 
 HTTPie won't download the image by default, but you can see that the response
 headers were set correctly. Just for fun, go ahead and paste the above URI
